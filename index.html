@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f5edf9">
+  <title>MINI CRANE | 3Dクレーンゲーム</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <main id="game-container" aria-label="3Dミニクレーンゲーム"></main>
+
+  <header class="top-bar">
+    <div class="brand"><span class="brand-star">✦</span> MINI CRANE <span class="brand-star">✦</span></div>
+    <div class="top-actions">
+      <div class="score" aria-live="polite">残り <strong id="remaining-plays">5</strong> 回</div>
+      <div class="score" aria-live="polite">GET <strong id="score">0</strong></div>
+      <button id="reset-button" class="small-button" type="button" title="視点とアームの位置だけリセット（カプセル・回数は維持）">位置戻す</button>
+    </div>
+  </header>
+
+  <section class="message-board" aria-live="polite">
+    <div class="message-kicker">1人5回まで / GAME STATUS</div>
+    <div id="status">① 横を長押しして位置を決めよう！</div>
+  </section>
+
+  <section class="control-deck" aria-label="ゲーム操作：①横、②縦の順に長押し">
+    <button id="horizontal-button" class="move-button" type="button">
+      <span>① 横</span>
+      <small>長押しで横移動</small>
+    </button>
+    <button id="vertical-button" class="move-button" type="button" disabled>
+      <span>② 縦</span>
+      <small>離したら自動下降</small>
+    </button>
+    <p class="control-hint">①を離して横位置確定 → ②を離すと自動でキャッチ！<br>キーボード：1・2 を長押し / R でリセット</p>
+  </section>
+
+  <!-- 5回終了後の開封演出。capsuleReveal.js が表示を制御する -->
+  <section id="capsule-reveal" class="reveal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="reveal-title" hidden>
+    <div class="reveal-panel">
+      <div class="reveal-eyebrow">MINI CRANE • CAPSULE OPENING</div>
+      <h2 id="reveal-title">5回プレイ終了！</h2>
+      <p id="reveal-description" class="reveal-description">ゲットした黒カプセルを開けよう！</p>
+      <div id="reveal-opening-stage" class="reveal-opening-stage">
+        <div id="reveal-progress" class="reveal-progress">1 / 1</div>
+        <div class="reveal-capsule-area">
+          <div class="reveal-glow" aria-hidden="true"></div>
+          <button id="reveal-capsule" class="reveal-capsule" type="button" aria-label="カプセルを開封">
+            <span class="reveal-ticket" aria-hidden="true"><span id="reveal-ticket-label">？</span></span>
+            <span class="reveal-cap reveal-cap-top" aria-hidden="true"></span>
+            <span class="reveal-cap reveal-cap-bottom" aria-hidden="true"></span>
+            <span class="reveal-seam" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div id="reveal-rank" class="reveal-rank" aria-live="polite"></div>
+        <p id="reveal-hint" class="reveal-hint">黒カプセルをタップして開封！</p>
+        <button id="reveal-next" class="reveal-primary" type="button" hidden>次のカプセルへ</button>
+      </div>
+      <div id="reveal-summary" class="reveal-summary" hidden>
+        <div class="reveal-summary-icon" aria-hidden="true">🎉</div>
+        <h3>今回の結果発表</h3>
+        <p id="reveal-summary-count"></p>
+        <ol id="reveal-result-list" class="reveal-result-list"></ol>
+        <button id="reveal-next-player" class="reveal-primary" type="button">次の人へ（新しい5回）</button>
+      </div>
+      <p class="reveal-footnote">※ 等級は獲得したカプセルだけ開封できます</p>
+    </div>
+  </section>
+
+  <div class="footer-note">3D MODEL : <span id="model-status">GLB読み込み中（仮アームを表示）</span> | 黒カプセル抽選</div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

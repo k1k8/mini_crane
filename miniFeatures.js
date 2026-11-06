@@ -357,7 +357,7 @@ let manualView = [
     .crane-camera-manual[hidden] {display:none!important}
     .crane-camera-status {margin-top:7px;text-align:center;font-size:10px;color:#87659c}
     @media(max-width:640px) {
-      .crane-camera-panel {left:7px;top:48%;width:136px;padding:9px 7px;border-radius:13px}
+      .crane-camera-panel {left:7px;top:85px;transform:none;width:128px;padding:8px 6px;border-radius:12px}
       .crane-camera-title {font-size:12px;margin-bottom:6px}
       .crane-camera-buttons {gap:3px}
       .crane-camera-buttons button {padding:7px 2px;font-size:11px}

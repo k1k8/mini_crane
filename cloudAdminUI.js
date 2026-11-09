@@ -9,7 +9,7 @@ import {
 import { auth } from "./firebaseConfig.js";
 
 // Firebase Authentication > Users の管理者UID
-const ADMIN_UID = "ここに管理者UIDを貼る";
+const ADMIN_UID = "2hG9FKf4VkZcDMvkLavCErhk9jM2";
 
 export function createCloudAdminUI({
   getSettings, onSave, canManage,
@@ -352,4 +352,3 @@ export function createCloudAdminUI({
       `✅ ${items.length}個を中央に集めました。`;
   });
 }
-

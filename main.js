@@ -969,7 +969,7 @@ function startCatch() {
 // =============================================
 const GRIP_MAX_CENTER_OFFSET = 0.24;  // 爪の中心とカプセルの横ズレ上限
 const GRIP_TIP_CONTACT_MARGIN = 0.13; // 爪先と球の表面との距離許容
-const GRIP_MIN_TOUCHING_TIPS = 2;     // 少なくとも2本の爪先を近づける
+const GRIP_MIN_TOUCHING_TIPS = 3;     // 少なくとも2本の爪先を近づける
 const GRIP_MIN_TIP_Y_OFFSET = -CAPSULE_RADIUS - 0.12;
 const GRIP_MAX_TIP_Y_OFFSET = 0.14;
 

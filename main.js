@@ -748,6 +748,11 @@ let state = "idle";
 let stateTime = 0;
 let controlPhase = "horizontal"; // horizontal → vertical → busy
 let heldPrize = null;
+// つかんだ瞬間の「アーム基準の相対位置」を保存する。
+// 爪先の中心へ毎フレーム吸い寄せると、カプセルが本体にめり込みやすい。
+const heldPrizeOffset = new THREE.Vector3();
+// 保持中だけ少し下げる量（0.00 にすると、つかんだ時の位置のまま）。
+const HELD_CAPSULE_LOWER = 0.10;
 
 let HOLD_CHANCE = CRANE_ADMIN.holdPercent / 100;
 let willSlip = false;
@@ -1173,6 +1178,13 @@ function tryGrab() {
   target.vx = 0;
   target.vz = 0;
   heldPrize = target;
+  // アームが下降しきった位置から見たカプセルの相対座標を記憶。
+  // これを保ったまま上昇させれば、つかんだ後に突然中心へ吸い寄せられない。
+  heldPrizeOffset.set(
+    target.group.position.x - crane.position.x,
+    target.group.position.y - (CRANE_Y + clawRig.position.y),
+    target.group.position.z - crane.position.z
+  );
   saveCapsuleScene();
 
   // 位置判定に合格した場合だけ、従来どおり35%の保持抽選をする。
@@ -1299,25 +1311,19 @@ function updateGame(delta) {
   }
 
   updateRope();
-  // カプセルを爪先3本の中心に沿わせ、浮いたような隙間を減らす。
+  // つかんだ瞬間の相対位置を保持して、アームに固定したように運ぶ。
+  // GLBの爪先3点の中心を使うと、カプセルが本体へ吸い寄せられる場合がある。
   if (heldPrize) {
-    let target = new THREE.Vector3(
-      crane.position.x,
-      CRANE_Y + clawRig.position.y - 0.94,
-      crane.position.z
+    // 床にある瞬間は下げず、少し持ち上がってから追加の隙間を作る。
+    const liftRatio = THREE.MathUtils.clamp(
+      (clawRig.position.y - CLAW_DROP_Y) / 0.30, 0, 1
     );
-
-    if (typeof clawModel.getFingertips === "function") {
-      const tips = clawModel.getFingertips();
-      if (tips.length === 3) {
-        const center = tips[0].clone().add(tips[1]).add(tips[2]).divideScalar(3);
-        // 爪先はカプセルの中心より少し下に来る想定。
-        target = center;
-        target.y += 0.16;
-      }
-    }
-
-    heldPrize.group.position.lerp(target, Math.min(1, delta * 13));
+    heldPrize.group.position.set(
+      crane.position.x + heldPrizeOffset.x,
+      CRANE_Y + clawRig.position.y + heldPrizeOffset.y
+        - HELD_CAPSULE_LOWER * liftRatio,
+      crane.position.z + heldPrizeOffset.z
+    );
     heldPrize.group.rotation.z = Math.sin(stateTime * 2) * 0.035;
   }
 }

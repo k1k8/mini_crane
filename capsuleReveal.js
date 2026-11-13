@@ -1,7 +1,32 @@
+
 /**
- * MINI CRANE
- * カプセル開封演出
+ * MINI CRANE — カプセル開封演出
+ * 1等1個 / 2等1個 / 3等1個 / ハズレ3個
+ *
+ * 将来景品名が決まったら、下の prize に名前を入力できる。
+ * いまは未設定なので開封時も等級・ハズレだけ表示。
+ * 例: 1: { label: "1等", prize: "ぬいぐるみ" },
  */
+export const PRIZE_INFO = {
+  1: { label: "1等", prize: "" },
+  2: { label: "2等", prize: "" },
+  3: { label: "3等", prize: "" },
+  4: { label: "ハズレ", prize: "" }
+};
+
+function getRankLabel(rank) {
+  return PRIZE_INFO[rank]?.label ?? "不明";
+}
+
+function getResultLabel(rank) {
+  const info = PRIZE_INFO[rank];
+
+  if (!info) return "不明";
+
+  return info.prize
+    ? `${info.label}：${info.prize}`
+    : info.label;
+}
 
 export function createCapsuleReveal({
   onNextPlayer,
@@ -67,6 +92,7 @@ export function createCapsuleReveal({
     summary.hidden = false;
 
     title.textContent = "抽選結果発表！";
+
     description.textContent =
       `${getMaxPlays()}回のプレイ、おつかれさま！`;
 
@@ -85,13 +111,15 @@ export function createCapsuleReveal({
       number.textContent = `GET ${i + 1}`;
 
       const award = document.createElement("span");
-      award.textContent = `${rank}等`;
+      award.textContent = getResultLabel(rank);
 
       li.append(number, award);
       resultList.append(li);
     }
 
-    nextPlayer.textContent = `次の人へ（新しい${getNextMaxPlays()}回）`;
+    nextPlayer.textContent =
+      `次の人へ（新しい${getNextMaxPlays()}回）`;
+
     nextPlayer.focus({ preventScroll: true });
   }
 
@@ -103,7 +131,8 @@ export function createCapsuleReveal({
 
     const rank = ranks[index];
 
-    ticket.textContent = `${rank}等`;
+    ticket.textContent = getRankLabel(rank);
+
     capsule.classList.add("is-open");
     hint.textContent = "開封中…";
 
@@ -122,13 +151,23 @@ export function createCapsuleReveal({
             ? "is-first"
             : rank === 2
               ? "is-second"
-              : ""
+              : rank === 4
+                ? "is-miss"
+                : ""
         }`;
 
-      rankResult.textContent = `🎉 ${rank}等！`;
+      if (rank === 4) {
+        rankResult.textContent = "😢 ハズレ！";
 
-      hint.textContent =
-        "カプセルの中から当たり券が出たよ！";
+        hint.textContent =
+          "今回はハズレ！ 次のカプセルにも期待！";
+      } else {
+        rankResult.textContent =
+          `🎉 ${getResultLabel(rank)}！`;
+
+        hint.textContent =
+          "カプセルの中から当たり券が出たよ！";
+      }
 
       next.textContent =
         index === ranks.length - 1
@@ -165,14 +204,16 @@ export function createCapsuleReveal({
   function show(wonRanks) {
     if (!overlay.hidden) return;
 
+    // 1・2・3等とハズレ（4）だけ有効
     ranks = wonRanks.filter(
-      v => Number.isInteger(v) && v >= 1 && v <= 6
+      v => Number.isInteger(v) && v >= 1 && v <= 4
     );
 
     index = 0;
     overlay.hidden = false;
 
-    title.textContent = `${getMaxPlays()}回プレイ終了！`;
+    title.textContent =
+      `${getMaxPlays()}回プレイ終了！`;
 
     description.textContent = ranks.length
       ? `${ranks.length}個ゲット！ まとめて開封しよう！`

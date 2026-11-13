@@ -315,7 +315,7 @@ const PLAY_BOUNDS = {
   minZ: -1.54, maxZ: 1.53
 };
 const MIN_CAPSULE_SPACING = CAPSULE_RADIUS * 2 + 0.13;
-const SCENE_STORAGE_KEY = 'mini_claw_capsule_scene_v2';
+const SCENE_STORAGE_KEY = 'mini_claw_capsule_scene_v3';
 
 function withinChuteOpening(x, z) {
   // 完全に落とせるように、中心の安全範囲で判定。
@@ -373,13 +373,18 @@ const scoreEl = document.getElementById("score");
 // カプセル内部に1～6等をランダムに割り当てる。
 // 6個すべて獲得すれば、1～6等が1つずつ出る仕組み。
 function shuffledRanks() {
-  const ranks = [1, 2, 3, 4, 5, 6];
+  // 1等、2等、3等が各1個、ハズレが3個
+  // 4はハズレを表す
+  const ranks = [1, 2, 3, 4, 4, 4];
+
   for (let i = ranks.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
   }
+
   return ranks;
 }
+
 
 function createCapsule(x, z, rank, index) {
   const group = new THREE.Group();
@@ -434,7 +439,7 @@ function createCapsule(x, z, rank, index) {
   const text = new THREE.Mesh(
     new THREE.PlaneGeometry(0.22, 0.11),
     new THREE.MeshBasicMaterial({
-      map: labelTexture(`${rank}等`, { background: "#ffe8a0", color: "#15151a", size: 56, border: "#fff1c8" }),
+      map: labelTexture(rank === 4 ? "ハズレ": `${rank}等`, { background: "#ffe8a0", color: "#15151a", size: 56, border: "#fff1c8" }),
       side: THREE.DoubleSide
     })
   );
@@ -447,7 +452,7 @@ function createCapsule(x, z, rank, index) {
   group.rotation.y = (index % 2 ? -1 : 1) * (0.08 + index * 0.04);
   machine.add(group);
   return {
-    group, rank, rankText: `${rank}等`, state: "floor",
+    group, rank, rankText: rank === 4 ? "ハズレ":  `${rank}等`, state: "floor",
     vx: 0, vy: 0, vz: 0, spin: 0,
     lastFloorX: x, lastFloorZ: z, homeX: x, homeZ: z
   };
@@ -486,21 +491,57 @@ function saveCapsuleScene() {
       lastFloorX: prize.lastFloorX,
       lastFloorZ: prize.lastFloorZ
     }));
-    localStorage.setItem(SCENE_STORAGE_KEY, JSON.stringify({ version: 2, capsules: data }));
+    localStorage.setItem(
+  SCENE_STORAGE_KEY,
+  JSON.stringify({ version: 3, capsules: data })
+);
   } catch { /* 保存できないブラウザでもプレイできる */ }
 }
 
+
 function loadCapsuleScene() {
   try {
-    const saved = JSON.parse(localStorage.getItem(SCENE_STORAGE_KEY) || 'null');
-    if (saved?.version !== 2 || !Array.isArray(saved.capsules) || saved.capsules.length !== 6) return null;
-    const ranks = saved.capsules.map(c => c.rank).sort((a,b) => a-b);
-    if (!ranks.every((r,i) => r === i + 1)) return null;
-    if (!saved.capsules.every(c => Number.isFinite(c.x) && Number.isFinite(c.y) &&
-      Number.isFinite(c.z) && ['floor','held','falling','won'].includes(c.state))) return null;
+    const saved = JSON.parse(
+      localStorage.getItem(SCENE_STORAGE_KEY) || "null"
+    );
+
+    if (
+      saved?.version !== 3 ||
+      !Array.isArray(saved.capsules) ||
+      saved.capsules.length !== 6
+    ) {
+      return null;
+    }
+
+    // 1等1個・2等1個・3等1個・ハズレ3個
+    const expectedRanks = [1, 2, 3, 4, 4, 4];
+
+    const ranks = saved.capsules
+      .map(c => c.rank)
+      .sort((a, b) => a - b);
+
+    if (!ranks.every(
+      (rank, i) => rank === expectedRanks[i]
+    )) {
+      return null;
+    }
+
+    if (!saved.capsules.every(c =>
+      Number.isFinite(c.x) &&
+      Number.isFinite(c.y) &&
+      Number.isFinite(c.z) &&
+      ["floor", "held", "falling", "won"].includes(c.state)
+    )) {
+      return null;
+    }
+
     return saved.capsules;
-  } catch { return null; }
+
+  } catch {
+    return null;
+  }
 }
+
 
 function populatePrizes(fresh = false) {
   const stored = fresh ? null : loadCapsuleScene();
@@ -775,7 +816,7 @@ let MAX_PLAYS = (() => {
   return CRANE_ADMIN.maxPlays;
 })();
 
-const PLAY_STORAGE_KEY = "mini_claw_current_player_plays_v1";
+const PLAY_STORAGE_KEY = "mini_claw_current_player_plays_v2";
 function loadPlayCount() {
   try {
     const saved = Number(localStorage.getItem(PLAY_STORAGE_KEY));
@@ -791,16 +832,29 @@ function savePlayCount() {
 function hasPlaysLeft() { return playCount < MAX_PLAYS; }
 // 獲得等級の記録は5回が終わって開封するまで公開しない。
 // リロードしても現在のプレイヤーの獲得結果を保持する。
-const WINS_STORAGE_KEY = "mini_claw_current_player_wins_v1";
+const WINS_STORAGE_KEY = "mini_claw_current_player_wins_v2";
+
 function loadWonRanks() {
   try {
-    const data = JSON.parse(localStorage.getItem(WINS_STORAGE_KEY) || "[]");
+    const data = JSON.parse(
+      localStorage.getItem(WINS_STORAGE_KEY) || "[]"
+    );
+
     if (!Array.isArray(data)) return [];
-    return data.filter(v => Number.isInteger(v) && v >= 1 && v <= 6).slice(0, MAX_PLAYS);
+
+    return data
+      .filter(v =>
+        Number.isInteger(v) &&
+        v >= 1 &&
+        v <= 4
+      )
+      .slice(0, MAX_PLAYS);
+
   } catch {
     return [];
   }
 }
+
 let wonRanks = loadWonRanks();
 score = wonRanks.length;
 scoreEl.textContent = String(score);

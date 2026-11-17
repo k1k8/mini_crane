@@ -1021,8 +1021,8 @@ function startCatch() {
 // =============================================
 // GLBの爪先に合わせたつかみ判定（物理エンジンではない）
 // =============================================
-const GRIP_MAX_CENTER_OFFSET = 0.28;
-const GRIP_TIP_CONTACT_MARGIN = 0.15;
+const GRIP_MAX_CENTER_OFFSET = 0.42;
+const GRIP_TIP_CONTACT_MARGIN = 0.26;
 const GRIP_MIN_TOUCHING_TIPS = 3;
 const GRIP_MIN_TIP_Y_OFFSET = -CAPSULE_RADIUS - 0.12;
 const GRIP_MAX_TIP_Y_OFFSET = 0.14;

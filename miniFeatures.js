@@ -1,4 +1,3 @@
-
 /* MINI CRANE — 追加機能専用モジュール
    初回操作ガイド／判定表示／獲得数／残り回数
    獲得音・BGM・音量／視点切替／Firebase管理者機能
@@ -942,19 +941,40 @@ export function createMiniCraneFeatures({
   // 10. 毎フレーム更新
   // ============================================
 
+
+  // 14. アームの機械演出を追加
+  const armMechanicsV14 = createArmRealismV14({
+    THREE,
+    machine
+  });
+
+  // 15. 筐体LED：既存のアーム・判定処理は変更しない
+  const cabinetLEDV15 = createCabinetLEDV15({
+    THREE,
+    machine,
+    statusEl
+  });
+
   function update(
     delta,
     moving,
     craneState = "idle"
   ) {
-    remainingEl.textContent = String(
+    // 更新があった場合だけDOMを書き換える（獲得監視の誤作動・負荷を防ぐ）
+    const nextRemaining = String(
       Math.max(0, getMaxPlays() - getPlayCount())
     );
+    if (remainingEl.textContent !== nextRemaining) {
+      remainingEl.textContent = nextRemaining;
+    }
 
-    wonEl.textContent = String(
-      getWinCount()
-    );
+    const nextWins = String(getWinCount());
+    if (wonEl.textContent !== nextWins) {
+      wonEl.textContent = nextWins;
+    }
 
+    armMechanicsV14.update(delta);
+    cabinetLEDV15.update(delta);
     // アーム動作音は再生しない
     refreshDebug(delta);
   }
@@ -969,307 +989,11 @@ export function createMiniCraneFeatures({
 
 
 // ============================================
-// 11. 視点切替UI
+// 11. 視点切替UI（camera.jsへ移動）
 // ============================================
-
-export function createCameraViewControls({
-  getView,
-  setView,
-  getAutoView
-}) {
-  const KEY = "mini_crane_camera_view_v1";
-
-  let saved = {};
-
-  try {
-    saved = JSON.parse(
-      localStorage.getItem(KEY) || "{}"
-    ) || {};
-  } catch {}
-
-  let automatic = saved.automatic !== false;
-
-  let manualView = [
-    "front",
-    "diagonal",
-    "side"
-  ].includes(saved.manualView)
-    ? saved.manualView
-    : "front";
-
-  const save = () => {
-    try {
-      localStorage.setItem(
-        KEY,
-        JSON.stringify({
-          automatic,
-          manualView
-        })
-      );
-    } catch {}
-  };
-
-  const style = document.createElement("style");
-
-  style.textContent = `
-    .crane-camera-panel {
-      position: fixed;
-      left: 14px;
-      top: 48%;
-      transform: translateY(-50%);
-      z-index: 9;
-      box-sizing: border-box;
-      width: 174px;
-      padding: 12px 11px;
-      border-radius: 17px;
-      border: 1px solid #fff;
-      background: rgba(255,249,255,.94);
-      color: #674783;
-      box-shadow: 0 8px 25px #70528533;
-      backdrop-filter: blur(10px);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .crane-camera-title {
-      font-size: 14px;
-      text-align: center;
-      margin-bottom: 8px;
-    }
-
-    .crane-camera-buttons {
-      display: flex;
-      gap: 5px;
-    }
-
-    .crane-camera-buttons button {
-      flex: 1;
-      min-width: 0;
-      border-radius: 9px;
-      padding: 8px 4px;
-      cursor: pointer;
-      background: white;
-      border: 1px solid #dcbde9;
-      color: #74578b;
-      font-size: 12px;
-      font-weight: 900;
-    }
-
-    .crane-camera-buttons button[aria-pressed="true"] {
-      background: #b76dbe;
-      color: white;
-      border-color: #b76dbe;
-    }
-
-    .crane-camera-manual {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid #e8d4eb;
-    }
-
-    .crane-camera-manual[hidden] {
-      display: none !important;
-    }
-
-    .crane-camera-status {
-      margin-top: 7px;
-      text-align: center;
-      font-size: 10px;
-      color: #87659c;
-    }
-
-    @media (max-width: 640px) {
-      .crane-camera-panel {
-        left: 7px;
-        top: 85px;
-        transform: none;
-        width: 128px;
-        padding: 8px 6px;
-        border-radius: 12px;
-      }
-
-      .crane-camera-title {
-        font-size: 12px;
-        margin-bottom: 6px;
-      }
-
-      .crane-camera-buttons {
-        gap: 3px;
-      }
-
-      .crane-camera-buttons button {
-        padding: 7px 2px;
-        font-size: 11px;
-      }
-
-      .crane-camera-manual {
-        margin-top: 7px;
-        padding-top: 7px;
-      }
-    }
-  `;
-
-  document.head.append(style);
-
-  const panel = document.createElement("section");
-
-  panel.className = "crane-camera-panel";
-
-  panel.setAttribute(
-    "aria-label",
-    "視点切り替え設定"
-  );
-
-  panel.innerHTML = `
-    <div class="crane-camera-title">
-      🎥 視点切り替え
-    </div>
-
-    <div class="crane-camera-buttons"
-      role="group"
-      aria-label="自動視点切替">
-
-      <button type="button" id="crane-auto-on">
-        ON
-      </button>
-
-      <button type="button" id="crane-auto-off">
-        OFF
-      </button>
-    </div>
-
-    <div class="crane-camera-manual"
-      id="crane-manual-view"
-      hidden>
-
-      <div class="crane-camera-buttons"
-        role="group"
-        aria-label="手動視点">
-
-        <button type="button" id="crane-front-view">
-          正面
-        </button>
-
-        <button type="button" id="crane-diagonal-view">
-          斜め
-        </button>
-
-        <button type="button" id="crane-side-view">
-          側面
-        </button>
-      </div>
-    </div>
-
-    <div class="crane-camera-status"
-      id="crane-camera-status"
-      aria-live="polite">
-    </div>
-  `;
-
-  document.body.append(panel);
-
-  const onButton = panel.querySelector("#crane-auto-on");
-  const offButton = panel.querySelector("#crane-auto-off");
-  const manualBox = panel.querySelector("#crane-manual-view");
-  const frontButton = panel.querySelector("#crane-front-view");
-  const diagonalButton = panel.querySelector("#crane-diagonal-view");
-  const sideButton = panel.querySelector("#crane-side-view");
-  const label = panel.querySelector("#crane-camera-status");
-
-  let lastState = "";
-
-  function refresh() {
-    const view = getView();
-
-    const state =
-      `${automatic}-${manualView}-${view}`;
-
-    if (state === lastState) return;
-
-    lastState = state;
-
-    onButton.setAttribute(
-      "aria-pressed",
-      String(automatic)
-    );
-
-    offButton.setAttribute(
-      "aria-pressed",
-      String(!automatic)
-    );
-
-    manualBox.hidden = automatic;
-
-    frontButton.setAttribute(
-      "aria-pressed",
-      String(manualView === "front")
-    );
-
-    diagonalButton.setAttribute(
-      "aria-pressed",
-      String(manualView === "diagonal")
-    );
-
-    sideButton.setAttribute(
-      "aria-pressed",
-      String(manualView === "side")
-    );
-
-    label.textContent =
-      `${automatic ? "自動" : "手動"}・` +
-      (
-        view === "side"
-          ? "側面"
-          : view === "diagonal"
-            ? "斜め"
-            : "正面"
-      );
-  }
-
-  onButton.addEventListener("click", () => {
-    automatic = true;
-    setView(getAutoView());
-    save();
-    refresh();
-  });
-
-  offButton.addEventListener("click", () => {
-    if (automatic) {
-      manualView = getView();
-    }
-
-    automatic = false;
-    setView(manualView);
-    save();
-    refresh();
-  });
-
-  for (const [view, button] of [
-    ["front", frontButton],
-    ["diagonal", diagonalButton],
-    ["side", sideButton]
-  ]) {
-    button.addEventListener("click", () => {
-      if (automatic) return;
-
-      manualView = view;
-      setView(view);
-      save();
-      refresh();
-    });
-  }
-
-  if (!automatic) {
-    setView(manualView);
-  }
-
-  refresh();
-
-  return {
-    isAuto: () => automatic,
-    update: refresh
-  };
-}
+// 旧コードからのimportを維持するための互換エクスポート。
+// 実装本体はcamera.jsに1か所だけ存在する。
+export { createCameraViewControls } from "./camera.js";
 
 
 // ============================================
@@ -1311,4 +1035,665 @@ export function createMiniCraneAdminSettings(options) {
         error
       );
     });
+}
+
+// ============================================
+// 13. カプセル獲得エフェクト（追加機能）
+// ============================================
+(() => {
+  const scoreEl = document.getElementById("score");
+
+  if (!scoreEl || document.getElementById("mini-get-effect-style")) {
+    return;
+  }
+
+  // エフェクト専用CSS
+  const style = document.createElement("style");
+  style.id = "mini-get-effect-style";
+
+  style.textContent = `
+    .mini-get-effect {
+      position: fixed;
+      inset: 0;
+      z-index: 21;
+      pointer-events: none;
+      overflow: hidden;
+      font-family: "Yu Gothic", "Meiryo", sans-serif;
+    }
+
+    .mini-get-effect__flash {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        circle at 50% 43%,
+        rgba(255,239,139,.55),
+        rgba(255,202,241,.18) 33%,
+        transparent 72%
+      );
+      animation: miniGetFlash 1.2s ease-out both;
+    }
+
+    .mini-get-effect__ring {
+      position: absolute;
+      left: 50%;
+      top: 43%;
+      width: 180px;
+      height: 180px;
+      border: 5px solid rgba(255,222,101,.88);
+      border-radius: 50%;
+      box-shadow: 0 0 25px rgba(255,210,70,.6);
+      animation: miniGetRing 1.05s ease-out both;
+    }
+
+    .mini-get-effect__ring--second {
+      border-color: rgba(255,143,211,.8);
+      animation-delay: .14s;
+    }
+
+    .mini-get-effect__title {
+      position: absolute;
+      left: 50%;
+      top: 43%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      font-weight: 1000;
+      text-align: center;
+      color: #fff;
+      text-shadow:
+        0 3px 0 #a84a98,
+        0 5px 16px #8a397c;
+      animation: miniGetTitle 1.7s ease-out both;
+    }
+
+    .mini-get-effect__title strong {
+      font-size: clamp(42px, 11vw, 88px);
+      line-height: 1.1;
+      letter-spacing: .035em;
+    }
+
+    .mini-get-effect__title small {
+      padding: 5px 18px;
+      border-radius: 99px;
+      background: #e660aa;
+      border: 2px solid #fff;
+      font-size: clamp(14px, 4vw, 22px);
+      box-shadow: 0 5px 18px #9e458d66;
+    }
+
+    .mini-get-effect__spark {
+      position: absolute;
+      left: 50%;
+      top: 43%;
+      width: 12px;
+      height: 20px;
+      border-radius: 3px;
+      box-shadow: 0 0 9px #ffffff99;
+      animation: miniGetSpark 1.3s
+        cubic-bezier(.15,.7,.4,1) both;
+      animation-delay: var(--delay);
+    }
+
+    .mini-get-score-pop {
+      animation: miniGetScorePop .7s ease-out;
+    }
+
+    @keyframes miniGetFlash {
+      0% { opacity: 0; }
+      14% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    @keyframes miniGetRing {
+      0% {
+        transform: translate(-50%,-50%) scale(.2);
+        opacity: 1;
+      }
+      100% {
+        transform: translate(-50%,-50%) scale(2.5);
+        opacity: 0;
+      }
+    }
+
+    @keyframes miniGetTitle {
+      0% {
+        transform: translate(-50%,-25%) scale(.35);
+        opacity: 0;
+      }
+      16% {
+        transform: translate(-50%,-50%) scale(1.2);
+        opacity: 1;
+      }
+      28%, 65% {
+        transform: translate(-50%,-50%) scale(1);
+        opacity: 1;
+      }
+      100% {
+        transform: translate(-50%,-70%) scale(.95);
+        opacity: 0;
+      }
+    }
+
+    @keyframes miniGetSpark {
+      0% {
+        transform: translate(-50%,-50%) scale(.2);
+        opacity: 0;
+      }
+      12% {
+        opacity: 1;
+      }
+      100% {
+        transform: translate(
+          calc(-50% + var(--dx)),
+          calc(-50% + var(--dy))
+        ) rotate(var(--rotate));
+        opacity: 0;
+      }
+    }
+
+    @keyframes miniGetScorePop {
+      0%, 100% { transform: scale(1); }
+      40% { transform: scale(1.55); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .mini-get-effect__spark,
+      .mini-get-effect__ring,
+      .mini-get-effect__flash {
+        display: none;
+      }
+
+      .mini-get-effect__title {
+        animation: none;
+        transform: translate(-50%,-50%);
+      }
+
+      .mini-get-score-pop {
+        animation: none;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  // ============================================
+  // エフェクト管理
+  // ============================================
+  let currentEffect = null;
+  let effectTimer = null;
+  let scoreTimer = null;
+
+  function showGetEffect() {
+    clearTimeout(effectTimer);
+    currentEffect?.remove();
+
+    const effect = document.createElement("div");
+    effect.className = "mini-get-effect";
+    effect.setAttribute("aria-hidden", "true");
+
+    effect.innerHTML = `
+      <div class="mini-get-effect__flash"></div>
+      <div class="mini-get-effect__ring"></div>
+      <div class="mini-get-effect__ring mini-get-effect__ring--second"></div>
+      <div class="mini-get-effect__title">
+        <strong>🎉 GET!</strong>
+        <small>黒カプセル +1</small>
+      </div>
+    `;
+
+    // ============================================
+    // キラキラパーティクル
+    // ============================================
+    const colors = [
+      "#ffe17e",
+      "#ff85bc",
+      "#77e5ff",
+      "#c5a2ff",
+      "#ffffff"
+    ];
+
+    for (let i = 0; i < 26; i++) {
+      const piece = document.createElement("span");
+      piece.className = "mini-get-effect__spark";
+
+      const angle =
+        (i / 26) * Math.PI * 2 +
+        Math.random() * .2;
+
+      const distance = 100 + Math.random() * 160;
+
+      piece.style.setProperty(
+        "--dx",
+        `${Math.cos(angle) * distance}px`
+      );
+
+      piece.style.setProperty(
+        "--dy",
+        `${Math.sin(angle) * distance * .8}px`
+      );
+
+      piece.style.setProperty(
+        "--rotate",
+        `${Math.random() * 720 - 360}deg`
+      );
+
+      piece.style.setProperty(
+        "--delay",
+        `${Math.random() * .18}s`
+      );
+
+      piece.style.backgroundColor =
+        colors[i % colors.length];
+
+      effect.appendChild(piece);
+    }
+
+    document.body.appendChild(effect);
+    currentEffect = effect;
+
+    // 終了したエフェクトを自動削除
+    effectTimer = setTimeout(() => {
+      effect.remove();
+
+      if (currentEffect === effect) {
+        currentEffect = null;
+      }
+    }, 1900);
+
+    // GETカウンターを弾ませる
+    clearTimeout(scoreTimer);
+
+    scoreEl.classList.remove("mini-get-score-pop");
+    void scoreEl.offsetWidth;
+    scoreEl.classList.add("mini-get-score-pop");
+
+    scoreTimer = setTimeout(() => {
+      scoreEl.classList.remove("mini-get-score-pop");
+    }, 750);
+  }
+
+  // ============================================
+  // 獲得数の増加を検知
+  // ============================================
+  // 初期保存データの読み込みを獲得と誤判定しない
+  setTimeout(() => {
+    let previousScore = Number(scoreEl.textContent) || 0;
+
+    new MutationObserver(() => {
+      const score = Number(scoreEl.textContent) || 0;
+
+      if (score > previousScore) {
+        showGetEffect();
+      }
+
+      previousScore = score;
+    }).observe(scoreEl, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }, 0);
+})();
+
+
+// ============================================
+// 14. アームの機械演出（追加機能）
+// ============================================
+function createArmRealismV14({ THREE, machine }) {
+  const crane = machine.children.find(obj =>
+    obj.isGroup &&
+    Math.abs(obj.position.y - 7.82) < 0.02 &&
+    obj.children.some(child =>
+      child.isGroup && child.position.y < -0.4
+    )
+  );
+
+  const clawRig = crane?.children.find(obj =>
+    obj.isGroup && obj.position.y < -0.4
+  );
+
+  if (!crane || !clawRig) {
+    console.warn(
+      "MINI CLANE: アーム演出用の台車が見つかりません"
+    );
+    return { update() {} };
+  }
+
+  if (crane.getObjectByName("mini-arm-mechanics-v14")) {
+    return { update() {} };
+  }
+
+  const rig = new THREE.Group();
+  rig.name = "mini-arm-mechanics-v14";
+  crane.add(rig);
+
+  const chrome = new THREE.MeshStandardMaterial({
+    color: 0xc9d8e6,
+    metalness: 0.82,
+    roughness: 0.22
+  });
+
+  const metal = new THREE.MeshStandardMaterial({
+    color: 0x566176,
+    metalness: 0.78,
+    roughness: 0.3
+  });
+
+  const pink = new THREE.MeshStandardMaterial({
+    color: 0xe972b4,
+    metalness: 0.42,
+    roughness: 0.3
+  });
+
+  // 巻き取りドラム
+  const drum = new THREE.Group();
+  drum.position.set(0, 0.34, 0.26);
+  rig.add(drum);
+
+  function cylinder(parent, radius, length, material, x = 0) {
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, length, 24),
+      material
+    );
+
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.x = x;
+    parent.add(mesh);
+
+    return mesh;
+  }
+
+  cylinder(drum, 0.145, 0.42, metal);
+  cylinder(drum, 0.175, 0.04, chrome, -0.22);
+  cylinder(drum, 0.175, 0.04, chrome, 0.22);
+  cylinder(drum, 0.055, 0.55, pink);
+
+  // ドラムの溝
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+
+    const rib = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, 0.018, 0.025),
+      chrome
+    );
+
+    rib.position.set(
+      0,
+      Math.sin(angle) * 0.147,
+      Math.cos(angle) * 0.147
+    );
+
+    rib.rotation.x = -angle;
+    drum.add(rib);
+  }
+
+  // 補助ギア
+  const gear = new THREE.Group();
+  gear.position.set(0.35, 0.29, 0.33);
+  rig.add(gear);
+
+  cylinder(gear, 0.12, 0.08, metal);
+  cylinder(gear, 0.04, 0.10, chrome);
+
+  for (let i = 0; i < 6; i++) {
+    const angle = i * Math.PI / 3;
+
+    const tooth = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.038, 0.04),
+      pink
+    );
+
+    tooth.position.set(
+      0,
+      Math.sin(angle) * 0.125,
+      Math.cos(angle) * 0.125
+    );
+
+    tooth.rotation.x = -angle;
+    gear.add(tooth);
+  }
+
+  // モーター動作ランプ
+  const lampMat = new THREE.MeshStandardMaterial({
+    color: 0x83a0b8,
+    emissive: 0x48d9ff,
+    emissiveIntensity: 0.08,
+    roughness: 0.2
+  });
+
+  const lamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.065, 16, 12),
+    lampMat
+  );
+
+  lamp.position.set(-0.35, 0.28, 0.43);
+  rig.add(lamp);
+
+  let lastX = crane.position.x;
+  let lastZ = crane.position.z;
+  let lastY = clawRig.position.y;
+  let lampStrength = 0;
+
+  // 既存の描画ループから呼び出す
+  return {
+    update(delta) {
+      const dt = Math.max(0, Math.min(delta || 0, 0.05));
+
+      const dx = crane.position.x - lastX;
+      const dz = crane.position.z - lastZ;
+      const dy = clawRig.position.y - lastY;
+
+      const travel = Math.hypot(dx, dz);
+
+      // アーム昇降と巻き取りを連動
+      if (Math.abs(dy) < 0.5) {
+        drum.rotation.x += dy / 0.145;
+      }
+
+      // 台車移動とギア回転を連動
+      if (travel < 0.5) {
+        gear.rotation.x += travel * 5;
+      }
+
+      // 動作状態をランプに反映
+      const working =
+        Math.abs(dy) > 0.0002 ||
+        travel > 0.0002;
+
+      lampStrength = THREE.MathUtils.damp(
+        lampStrength,
+        working ? 1 : 0,
+        10,
+        dt
+      );
+
+      lampMat.emissiveIntensity =
+        0.08 + lampStrength * 1.6;
+
+      lampMat.color.setRGB(
+        0.52 + lampStrength * 0.12,
+        0.63 + lampStrength * 0.30,
+        0.72 + lampStrength * 0.25
+      );
+
+      lastX = crane.position.x;
+      lastZ = crane.position.z;
+      lastY = clawRig.position.y;
+    }
+  };
+}
+
+
+// ============================================
+// 15. LEDイルミネーション（追加機能）
+// ============================================
+function createCabinetLEDV15({ THREE, machine, statusEl }) {
+  const ID = "mini-cabinet-led-v15";
+  const KEY = "mini_cabinet_led_enabled_v15";
+
+  if (machine.getObjectByName(ID)) {
+    return { update() {} };
+  }
+
+  let enabled = true;
+  try {
+    enabled = localStorage.getItem(KEY) !== "0";
+  } catch {}
+
+  const ledGroup = new THREE.Group();
+  ledGroup.name = ID;
+  machine.add(ledGroup);
+
+  const strips = [];
+  const bulbs = [];
+  const bulbGeometry = new THREE.SphereGeometry(0.047, 10, 8);
+
+  // 既存のGLB・筐体・当たり判定には触れず、表示用だけ追加
+  function strip(x, y, z, w, h, d, phase) {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x8eefff,
+      transparent: true,
+      opacity: 0.9,
+      toneMapped: false,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      material
+    );
+    mesh.position.set(x, y, z);
+    mesh.renderOrder = 3;
+    ledGroup.add(mesh);
+    strips.push({ material, phase });
+  }
+
+  function bulb(x, y, z, phase) {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.95,
+      toneMapped: false,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(bulbGeometry, material);
+    mesh.position.set(x, y, z);
+    mesh.renderOrder = 4;
+    ledGroup.add(mesh);
+    bulbs.push({ material, phase });
+  }
+
+  // 前面ガラスの左右・上下のふち
+  strip(-2.83, 5.74, 2.65, 0.055, 4.85, 0.04, 0.0);
+  strip( 2.83, 5.74, 2.65, 0.055, 4.85, 0.04, 0.3);
+  strip(0, 8.21, 2.65, 5.67, 0.055, 0.04, 0.6);
+  strip(0, 3.33, 2.65, 5.67, 0.055, 0.04, 0.9);
+
+  // 景品エリア床のライン
+  strip(-2.55, 3.34, -0.10, 0.055, 0.035, 3.8, 1.2);
+  strip( 2.55, 3.34, -0.10, 0.055, 0.035, 3.8, 1.5);
+  strip(0, 3.34, -2.03, 5.10, 0.035, 0.055, 1.8);
+
+  // 景品取り出し口の枠
+  strip(-1.43, 1.43, 2.73, 1.80, 0.045, 0.035, 2.0);
+  strip(-1.43, 0.43, 2.73, 1.80, 0.045, 0.035, 2.2);
+  strip(-2.33, 0.93, 2.73, 0.045, 1.0, 0.035, 2.4);
+  strip(-0.53, 0.93, 2.73, 0.045, 1.0, 0.035, 2.6);
+
+  // 電球風の小さいLED
+  for (const x of [-2.83, 2.83]) {
+    for (let i = 0; i < 9; i++) {
+      bulb(x, 3.60 + i * 0.54, 2.72, i * 0.23 + x);
+    }
+  }
+  for (let i = 0; i < 11; i++) {
+    bulb(-2.5 + i * 0.5, 8.23, 2.72, i * 0.19);
+  }
+
+  const roomGlow = new THREE.PointLight(0x86eaff, 1.1, 5, 2);
+  roomGlow.position.set(0, 5.9, 1.6);
+  roomGlow.castShadow = false;
+  ledGroup.add(roomGlow);
+
+  // 元の設定画面の末尾にLEDのON/OFFを追加
+  const settingsPanel = document.querySelector(".mini-extra-panel");
+  if (settingsPanel && !document.getElementById("mini-led-v15-toggle")) {
+    const row = document.createElement("label");
+    row.textContent = "LEDイルミネーション";
+    const input = document.createElement("input");
+    input.id = "mini-led-v15-toggle";
+    input.type = "checkbox";
+    input.checked = enabled;
+    row.appendChild(input);
+    settingsPanel.appendChild(row);
+    input.addEventListener("change", () => {
+      enabled = input.checked;
+      ledGroup.visible = enabled;
+      try {
+        localStorage.setItem(KEY, enabled ? "1" : "0");
+      } catch {}
+    });
+  }
+
+  // GET!時は約1.5秒間、LEDを明るくする
+  let previousStatus = statusEl?.textContent || "";
+  let getBoost = 0;
+  if (statusEl) {
+    new MutationObserver(() => {
+      const current = statusEl.textContent || "";
+      if (current !== previousStatus && current.includes("GET!")) {
+        getBoost = 1.5;
+      }
+      previousStatus = current;
+    }).observe(statusEl, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }
+
+  let time = 0;
+  const reducedMotion =
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  ledGroup.visible = enabled;
+
+  return {
+    update(delta) {
+      if (!enabled) return;
+      const dt = Number.isFinite(delta)
+        ? Math.max(0, Math.min(delta, 0.05))
+        : 0;
+      time += dt;
+      getBoost = Math.max(0, getBoost - dt);
+      const flash = Math.min(1, getBoost * 1.5);
+
+      strips.forEach(({ material, phase }) => {
+        const hue = reducedMotion
+          ? 0.55
+          : (time * 0.06 + phase * 0.12) % 1;
+        material.color.setHSL(hue, 0.9, 0.67 + flash * 0.22);
+        material.opacity = reducedMotion
+          ? 0.86
+          : Math.min(1, 0.77 + Math.sin(time * 3 + phase) * 0.14 + flash * 0.2);
+      });
+
+      bulbs.forEach(({ material, phase }) => {
+        const hue = reducedMotion
+          ? 0.55
+          : (time * 0.10 + phase * 0.12 + 1) % 1;
+        material.color.setHSL(hue, 1, 0.72 + flash * 0.18);
+        material.opacity = reducedMotion
+          ? 0.9
+          : Math.min(1, 0.67 + Math.sin(time * 6 - phase) * 0.3 + flash * 0.3);
+      });
+
+      roomGlow.color.setHSL(
+        reducedMotion ? 0.55 : (time * 0.06) % 1,
+        0.9,
+        0.65
+      );
+      roomGlow.intensity = 0.8 + flash * 3;
+    }
+  };
 }

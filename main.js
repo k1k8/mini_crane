@@ -1,4 +1,6 @@
 import { createCapsuleReveal } from "./capsuleReveal.js";
+import { createHookMode } from "./hook.js";
+import { createCraneCamera, createCameraViewControls } from "./camera.js";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -25,13 +27,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xedeefa);
 scene.fog = new THREE.Fog(0xedeefa, 18, 42);
 
-const camera = new THREE.PerspectiveCamera(39, 1, 0.1, 100);
-const CAMERA_FRONT = new THREE.Vector3(0, 7.2, 18.2);
-const CAMERA_SIDE = new THREE.Vector3(16.0, 7.5, 0);
-const CAMERA_DIAGONAL = new THREE.Vector3(8.5, 18.5, 9.5);
-const cameraGoal = CAMERA_FRONT.clone();
-camera.position.copy(cameraGoal);
-camera.lookAt(0, 5.1, 0);
+// カメラ座標・視点切替・補間処理は camera.js に分離。
+const cameraSystem = createCraneCamera({ THREE });
+const camera = cameraSystem.camera;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -42,15 +40,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.55;
 document.getElementById("game-container").appendChild(renderer.domElement);
 
-function onResize() {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-}
-window.addEventListener("resize", onResize);
-onResize();
+cameraSystem.bindRenderer(renderer);
 
 scene.add(new THREE.HemisphereLight(0xf7faff, 0xd7c2e1, 2.25));
 const keyLight = new THREE.DirectionalLight(0xffffff, 3.0);
@@ -175,7 +165,8 @@ scene.add(ground);
 // 底台・操作部
 addBox(machine, 0, 1.55, 0, 6.15, 3.05, 4.8, MAT.white);
 addBox(machine, 0, 3.07, 0, 6.1, 0.22, 4.8, MAT.warmWhite);
-addBox(machine, 0, 3.21, 0, 5.35, 0.07, 4.0, MAT.floor);
+// この床だけフックモード時に非表示（底面すべてが取り出し口）。
+const clawFloorMesh = addBox(machine, 0, 3.21, 0, 5.35, 0.07, 4.0, MAT.floor);
 
 // 奥面＋背面のパステル背景
 addBox(machine, 0, 5.83, -2.25, 5.85, 5.0, 0.10, MAT.white);
@@ -255,11 +246,12 @@ addCylinder(machine, 1.96, 2.43, 2.68, 0.22, 0.22, 0.05, MAT.darkMetal);
 addBox(machine, 1.96, 2.43, 2.719, 0.04, 0.30, 0.04, MAT.dark);
 addCylinder(machine, 1.96, 1.74, 2.67, 0.32, 0.32, 0.08, MAT.darkMetal);
 addBox(machine, 1.96, 1.73, 2.715, 0.06, 0.42, 0.025, MAT.dark);
-// 取り出し口
-addBox(machine, -1.43, 0.92, 2.51, 1.76, 0.94, 0.13, MAT.hotPink);
-addBox(machine, -1.43, 1.02, 2.60, 1.48, 0.64, 0.05, MAT.hole);
-addLabel(machine, "PRIZE OUT", -1.43, 0.58, 2.66, 1.55, 0.27,
-  { background: "#e766a7", color: "#ffffff", size: 54, border: "#f1a1ca" });
+// 3本爪だけの取り出し口。HOOKでは底面全体を取り出し口に変更する。
+const clawOnlyChuteMeshes = [];
+clawOnlyChuteMeshes.push(addBox(machine, -1.43, 0.92, 2.51, 1.76, 0.94, 0.13, MAT.hotPink));
+clawOnlyChuteMeshes.push(addBox(machine, -1.43, 1.02, 2.60, 1.48, 0.64, 0.05, MAT.hole));
+clawOnlyChuteMeshes.push(addLabel(machine, "PRIZE OUT", -1.43, 0.58, 2.66, 1.55, 0.27,
+  { background: "#e766a7", color: "#ffffff", size: 54, border: "#f1a1ca" }));
 
 // 獲得口は上だけ開いた透明アクリルガード付き。
 // 見た目の壁と物理判定を同じ GUARD_WALLS から作る。
@@ -272,13 +264,14 @@ const GUARD_HEIGHT = 0.55;
 const GUARD_FRONT_HEIGHT = 0.27;
 const GUARD_WALLS = [];
 
-addBox(machine, CHUTE_X, 3.255, CHUTE_Z, 1.05, 0.025, 1.06, MAT.hole, false);
+clawOnlyChuteMeshes.push(addBox(machine, CHUTE_X, 3.255, CHUTE_Z, 1.05, 0.025, 1.06, MAT.hole, false));
 
 function addGuardWall(x, z, w, d, h) {
   const floor = 3.23;
   const base = floor + 0.04;
   const y = base + h / 2;
   const mesh = addBox(machine, x, y, z, w, h, d, MAT.guard, false);
+  clawOnlyChuteMeshes.push(mesh);
   mesh.receiveShadow = false;
   GUARD_WALLS.push({
     minX: x - w / 2, maxX: x + w / 2,
@@ -300,7 +293,13 @@ for (const [x, z, w, d, h] of [
   [CHUTE_X + CHUTE_HALF_W, CHUTE_Z, 0.055, 1.14, GUARD_HEIGHT],
   [CHUTE_X, CHUTE_Z + CHUTE_HALF_D, 1.17, 0.055, GUARD_FRONT_HEIGHT]
 ]) {
-  addBox(machine, x, 3.27 + h, z, w, 0.045, d, MAT.hotPink, false);
+  clawOnlyChuteMeshes.push(addBox(machine, x, 3.27 + h, z, w, 0.045, d, MAT.hotPink, false));
+}
+
+function applyFloorOutletMode(isHook) {
+  clawFloorMesh.visible = !isHook;
+  for (const mesh of clawOnlyChuteMeshes) mesh.visible = !isHook;
+  // HOOK側の白い全面獲得エリアと外周枠は hook.js が描画する。
 }
 
 // ====================================================
@@ -365,6 +364,13 @@ function scatterPositions(count) {
   }
   return positions;
 }
+
+// 3本爪用カプセルは専用レイヤーにまとめる。
+// HOOKモードでは親グループを非表示にするため、
+// 次のプレイヤーへ再配置した景品が誤って表示されることもない。
+const clawCapsuleLayer = new THREE.Group();
+clawCapsuleLayer.name = 'mini-claw-only-capsules';
+machine.add(clawCapsuleLayer);
 
 let prizes = [];
 let score = 0;
@@ -450,7 +456,7 @@ function createCapsule(x, z, rank, index) {
 
   group.position.set(x, CAPSULE_CENTER_Y, z);
   group.rotation.y = (index % 2 ? -1 : 1) * (0.08 + index * 0.04);
-  machine.add(group);
+  clawCapsuleLayer.add(group);
   return {
     group, rank, rankText: rank === 4 ? "ハズレ":  `${rank}等`, state: "floor",
     vx: 0, vy: 0, vz: 0, spin: 0,
@@ -460,7 +466,8 @@ function createCapsule(x, z, rank, index) {
 
 function clearPrizes() {
   for (const prize of prizes) {
-    machine.remove(prize.group);
+    // 親がmachineではなく専用レイヤーになっても安全に削除する。
+    prize.group.removeFromParent();
     const materials = new Set();
     prize.group.traverse(child => {
       if (!child.isMesh) return;
@@ -583,6 +590,26 @@ const MOVE_SPEED = 2.50;
 const AUTO_SPEED = 3.55;
 const DROP_SPEED = 2.1;
 const LIFT_SPEED = 2.4;
+
+// Ver.1.2: 機械らしい加減速（座標の終点や当たり判定は変えない）
+const MANUAL_ACCEL = 10.0;        // ①② 長押し開始時の加速
+const AUTO_ACCEL = 8.0;          // 排出口へ戻るときの加速
+const AUTO_BRAKE = 6.5;          // 排出口直前の減速
+const DROP_DURATION = (CLAW_REST_Y - CLAW_DROP_Y) / DROP_SPEED * 1.2;
+const LIFT_DURATION = (CLAW_REST_Y - CLAW_DROP_Y) / LIFT_SPEED * 1.2;
+const CLAW_CLOSE_DURATION = 0.72;
+const CLAW_RELEASE_DURATION = 0.84;
+
+let horizontalVelocity = 0;
+let verticalVelocity = 0;
+let autoReturnVelocity = 0;
+let armSwayTime = 0;
+
+// 0→1を両端で速度0になるように補間
+function easeInOutSmooth(t) {
+  const p = THREE.MathUtils.clamp(t, 0, 1);
+  return p * p * (3 - 2 * p);
+}
 
 for (const z of [-1.68, 1.65]) addBox(machine, 0, 7.94, z, 5.22, 0.12, 0.16, MAT.darkMetal);
 const travelRail = new THREE.Group();
@@ -755,6 +782,7 @@ glbLoader.load(
       clawRig.remove(clawModel.root);
       clawRig.add(imported.root);
       clawModel = imported;
+      imported.root.visible = !hookMode?.isHook();
       if (modelStatusEl) modelStatusEl.textContent = "1arm.glb（3本爪アニメーション）";
     } catch (error) {
       console.error("GLBアームのアニメーション設定に失敗:", error);
@@ -785,10 +813,35 @@ const verticalButton = document.getElementById("vertical-button");
 const resetButton = document.getElementById("reset-button");
 const remainingEl = document.getElementById("remaining-plays");
 
+// 画面上の操作ボタンにも押し込み感を追加。
+// 既存の3D本体ボタンのアニメーションは末尾のコードをそのまま使用する。
+const controlPressStyle = document.createElement("style");
+controlPressStyle.id = "mini-crane-realistic-buttons";
+controlPressStyle.textContent = `
+  #horizontal-button, #vertical-button {
+    position: relative;
+    transition: top 0.10s ease, filter 0.10s ease,
+      box-shadow 0.10s ease;
+    top: 0;
+  }
+  #horizontal-button.mini-pressed,
+  #vertical-button.mini-pressed {
+    top: 3px;
+    filter: brightness(0.96);
+    box-shadow: inset 0 3px 9px rgba(30, 20, 50, 0.28) !important;
+  }
+  #horizontal-button.mini-ready:not(:disabled),
+  #vertical-button.mini-ready:not(:disabled) {
+    outline-offset: 2px;
+  }
+`;
+document.head.appendChild(controlPressStyle);
+
 let state = "idle";
 let stateTime = 0;
 let controlPhase = "horizontal"; // horizontal → vertical → busy
 let heldPrize = null;
+let hookMode = null; // HOOKモード本体（hook.js）
 // つかんだ瞬間の「アーム基準の相対位置」を保存する。
 // 爪先の中心へ毎フレーム吸い寄せると、カプセルが本体にめり込みやすい。
 const heldPrizeOffset = new THREE.Vector3();
@@ -883,6 +936,9 @@ function setStatus(message) {
 }
 
 function isPrizeMoving() {
+  // モードごとの景品だけを監視。隠れた3本爪景品の状態は
+  // フックの操作・5回後の開封を妨げないようにする。
+  if (hookMode?.isHook()) return hookMode.isMoving();
   return prizes.some(p =>
     p.state === "falling" ||
     (p.state === "floor" && Math.hypot(p.vx, p.vz) > 0.009)
@@ -902,15 +958,17 @@ function beginHorizontal(source) {
   if (!hasPlaysLeft() || isPrizeMoving() || sessionRevealStarted ||
       state !== "idle" || controlPhase !== "horizontal" || horizontalInput !== null) return false;
   horizontalInput = source;
-  if (cameraControls.isAuto()) cameraGoal.copy(CAMERA_FRONT); // 自動ONのみ切り替え
+  horizontalVelocity = 0;
+  if (cameraControls.isAuto()) cameraSystem.setView("front"); // 自動ONのみ
   return true;
 }
 function finishHorizontal(source) {
   if (horizontalInput !== source) return;
   horizontalInput = null;
+  horizontalVelocity = 0;
   if (state !== "idle" || controlPhase !== "horizontal") return;
   controlPhase = "vertical";
-  if (cameraControls.isAuto()) cameraGoal.copy(CAMERA_SIDE); // 自動ONのみ切り替え
+  if (cameraControls.isAuto()) cameraSystem.setView("side"); // 自動ONのみ
   setControlsEnabled(true);
   setStatus("② 縦を長押し！ 離したら自動で下降します");
 }
@@ -919,12 +977,14 @@ function beginVertical(source) {
   if (!hasPlaysLeft() || isPrizeMoving() || sessionRevealStarted ||
       state !== "idle" || controlPhase !== "vertical" || verticalInput !== null) return false;
   verticalInput = source;
-  if (cameraControls.isAuto()) cameraGoal.copy(CAMERA_SIDE);
+  verticalVelocity = 0;
+  if (cameraControls.isAuto()) cameraSystem.setView("side");
   return true;
 }
 function finishVertical(source) {
   if (verticalInput !== source) return;
   verticalInput = null;
+  verticalVelocity = 0;
   if (state !== "idle" || controlPhase !== "vertical") return;
   controlPhase = "busy";
   startCatch(); // ②を離した瞬間、自動下降シーケンス開始
@@ -990,6 +1050,7 @@ localStorage.setItem(
   wonRanks = [];
   saveWonRanks();
   sessionRevealStarted = false;
+  hookMode?.resetForNextPlayer();
   resetGame(true);
 }
 function maybeStartReveal() {
@@ -1009,6 +1070,7 @@ if (!hasPlaysLeft()) setStatus(`${MAX_PLAYS}回終了！ 開封結果を確認�
 // ====================================================
 function startCatch() {
   if (state !== "idle" || !hasPlaysLeft()) return;
+  if (hookMode?.isHook()) hookMode.ensureTargets();
   playCount += 1;
   savePlayCount();
   state = "opening";
@@ -1016,16 +1078,18 @@ function startCatch() {
   horizontalInput = null;
   verticalInput = null;
   setControlsEnabled(false);
-  setStatus("アームを開いています…");
+  setStatus(hookMode?.isHook()
+    ? "〇リングの下降準備中…"
+    : "アームを開いています…");
 }
 // =============================================
 // GLBの爪先に合わせたつかみ判定（物理エンジンではない）
 // =============================================
-const GRIP_MAX_CENTER_OFFSET = 0.42;
-const GRIP_TIP_CONTACT_MARGIN = 0.26;
+const GRIP_MAX_CENTER_OFFSET = 0.42; // カプセル中心と3本爪の中心の許容ズレ
+const GRIP_TIP_CONTACT_MARGIN = 0.26; // 各爪先とカプセル表面の接触許容
 const GRIP_MIN_TOUCHING_TIPS = 3;
-const GRIP_MIN_TIP_Y_OFFSET = -CAPSULE_RADIUS - 0.12;
-const GRIP_MAX_TIP_Y_OFFSET = 0.14;
+const GRIP_MIN_TIP_Y_OFFSET = -CAPSULE_RADIUS - 0.24; // 下側の高さ許容を拡大
+const GRIP_MAX_TIP_Y_OFFSET = 0.26; // 上側の高さ許容を拡大
 
 // 爪先3点が作る三角形（上から見た形）の内部にあるか。
 function insideClawTriangle(x, z, tips) {
@@ -1040,8 +1104,8 @@ function insideClawTriangle(x, z, tips) {
   const v = (abx * apz - apx * abz) / det;
   const w = 1 - u - v;
 
-  // メッシュの微小な非対称性だけ許容。
-  return Math.min(u, v, w) >= -0.05;
+  // 爪先三角形の少し外側まで許容し、カプセルの端でもつかめるようにする。
+  return Math.min(u, v, w) >= -0.12;
 }
 
 function checkGrip(prize, tips) {
@@ -1082,16 +1146,25 @@ function checkGrip(prize, tips) {
   // GLB読み込みに失敗したときの仮アーム用。
   // 従来の「0.81以内なら何でもOK」より狭くしておく。
   const fallbackTipY = CRANE_Y + clawRig.position.y - 1.12;
-  return Math.abs(fallbackTipY - center.y) <= 0.30 &&
+  return Math.abs(fallbackTipY - center.y) <= 0.42 &&
     Math.hypot(center.x - crane.position.x,
                center.z - crane.position.z) <= GRIP_MAX_CENTER_OFFSET;
 }
 
 // 追加UIは失敗しても3D描画を継続できるよう、まず安全な初期値を用意。
-let cameraControls = {
-  isAuto: () => true,
-  update: () => {}
-};
+// 視点切替UIもcamera.jsから直接生成する。
+// 既存の設定(localStorage)・ON/OFF・手動視点を維持。
+let cameraControls = { isAuto: () => true, update: () => {} };
+try {
+  cameraControls = createCameraViewControls({
+    getView: () => cameraSystem.getView(),
+    setView: view => cameraSystem.setView(view),
+    getAutoView: () => controlPhase === "horizontal" ? "front" : "side"
+  });
+} catch (error) {
+  console.error("MINI CLANE 視点切替UIの初期化エラー:", error);
+}
+
 let miniFeatures = {
   isGuideOpen: () => false,
   update: () => {}
@@ -1101,54 +1174,16 @@ let miniFeatures = {
 // 古いminiFeatures.jsでもゲーム機本体が消えない。
 import("./miniFeatures.js")
   .then(mod => {
-    if (typeof mod.createCameraViewControls === "function") {
-      try {
-        cameraControls = mod.createCameraViewControls({
-          
-getView: () => {
-  const views = {
-    front: CAMERA_FRONT,
-    diagonal: CAMERA_DIAGONAL,
-    side: CAMERA_SIDE
-  };
-
-  return Object.keys(views).reduce(
-    (best, name) =>
-      cameraGoal.distanceToSquared(views[name]) <
-      cameraGoal.distanceToSquared(views[best])
-        ? name
-        : best,
-    "front"
-  );
-},
-
-setView: view => {
-  const views = {
-    front: CAMERA_FRONT,
-    diagonal: CAMERA_DIAGONAL,
-    side: CAMERA_SIDE
-  };
-
-  cameraGoal.copy(views[view] || CAMERA_FRONT);
-},
-
-          getAutoView: () => controlPhase === "horizontal" ? "front" : "side"
-        });
-      } catch (error) {
-        console.error("MINI CRANE 視点切り替えの初期化エラー:", error);
-      }
-    } else {
-      console.warn("miniFeatures.js が古い可能性があります（視点切り替え機能なし）。ゲーム本体は表示を続けます。");
-    }
-
     if (typeof mod.createMiniCraneFeatures === "function") {
       try {
         miniFeatures = mod.createMiniCraneFeatures({
           THREE,
           machine,
-          getPrizes: () => prizes,
-          getTips: () => typeof clawModel.getFingertips === "function"
-            ? clawModel.getFingertips() : null,
+          getPrizes: () => hookMode?.isHook()
+            ? prizes.map(p => ({ ...p, state: "won" })) : prizes,
+          getTips: () => hookMode?.isHook() ? null :
+            typeof clawModel.getFingertips === "function"
+              ? clawModel.getFingertips() : null,
           checkGrip,
           getPlayCount: () => playCount,
           getWinCount: () => wonRanks.length,
@@ -1198,7 +1233,110 @@ setView: view => {
     console.error("MINI CRANE の追加機能を読み込めませんでした。ゲーム本体の描画は継続します:", error);
   });
 
+
+// ================================================
+// 16. 3本爪 / HOOK モード切替
+// ================================================
+// モード表示をここで一括管理。景品を作り直しても親レイヤーは維持する。
+function syncModeScene() {
+  const isHook = hookMode?.isHook() === true;
+  clawCapsuleLayer.visible = !isHook;
+  clawModel.root.visible = !isHook;
+  applyFloorOutletMode(isHook);
+}
+
+// フック側で初期化エラーが起きても、3本爪側の描画は止めない。
+try {
+hookMode = createHookMode({
+  THREE,
+  machine,
+  crane,
+  clawRig,
+  onStatus: setStatus,
+  onAward: rank => {
+    wonRanks.push(rank);
+    saveWonRanks();
+    score = wonRanks.length;
+    scoreEl.textContent = String(score);
+    // 機能13のGETエフェクトと従来の5回後の開封演出を共用。
+    setStatus(`GET! 🎉 黒カプセル獲得！ 合計${score}個（等級は終了後に発表）`);
+    setControlsEnabled(true);
+  },
+  canSwitch: () =>
+    state === "idle" &&
+    controlPhase === "horizontal" &&
+    horizontalInput === null &&
+    verticalInput === null &&
+    playCount === 0 &&
+    wonRanks.length === 0 &&
+    !sessionRevealStarted &&
+    !reveal.isVisible() &&
+    !isPrizeMoving() &&
+    !miniFeatures.isGuideOpen(),
+  onModeChange: nextMode => {
+    const requestedView = cameraControls.isAuto() ? "front" : cameraSystem.getView();
+    // 切替時は個々のカプセルではなくレイヤーごと表示を切り替える。
+    syncModeScene();
+    resetGame();
+    cameraSystem.setMode(nextMode, { view: requestedView, instant: true });
+    setStatus(nextMode === 'hook'
+      ? '⭕ 橋渡しリング：①横 → ②奥 → 横板のフックを狙おう！'
+      : '🎮 3本爪モード：①横を長押し！');
+  }
+});
+} catch (error) {
+  console.error('HOOKモードの初期化に失敗。3本爪モードで起動します:', error);
+  // 途中まで作られたHOOKオブジェクトを非表示にする。
+  machine.getObjectByName('mini-hook-stage-v4')?.removeFromParent();
+  clawRig.getObjectByName('mini-ring-tool-v4')?.removeFromParent();
+  hookMode = {
+    isHook: () => false,
+    isMoving: () => false,
+    hasHeld: () => false,
+    getDropY: () => CLAW_DROP_Y,
+    tryHook: () => false,
+    release: () => false,
+    update: () => {},
+    ensureTargets: () => {},
+    useGLB: () => false,
+    prepareNextAttempt: () => {},
+    resetSwing: () => {},
+    resetForNextPlayer: () => {}
+  };
+}
+// 17. MeshyのリングアームGLBを読み込む（上下分割済みモデルが必要）。
+// models/hook.glb: HookBase=固定カバー / HookChain=揺れる鎖と〇リング
+// 読み込み失敗時はhook.jsの仮リングでプレイを継続。
+const ENABLE_HOOK_GLB = true;
+if (ENABLE_HOOK_GLB) {
+  glbLoader.load('./models/hook.glb',
+    gltf => {
+      if (!hookMode.useGLB(gltf.scene)) {
+        console.warn('hook.glbのパーツ構成が異なります。仮リングを使用します。');
+      }
+    },
+    undefined,
+    error => console.warn('hook.glb を読めませんでした。仮リングを使用します', error)
+  );
+}
+// リロード直後も選択モードの表示を復元。
+syncModeScene();
+// 保存モードがHOOKだった場合も最初から近い視点で表示する。
+cameraSystem.setMode(hookMode.isHook() ? "hook" : "claw", {
+  view: cameraControls.isAuto() ? "front" : cameraSystem.getView(),
+  instant: true
+});
+// 個々の景品は獲得済みかどうかだけで表示を決める。
+// 3本爪モード以外ではclawCapsuleLayerが丸ごと隠れる。
+for (const prize of prizes) {
+  prize.group.visible = prize.state !== 'won';
+}
+
 function tryGrab() {
+  if (hookMode?.isHook()) {
+    hookMode.tryHook();
+    return;
+  }
   // GLB座標の更新は1回だけ行い、6つのカプセルを同じ姿勢で判定。
   const tips = typeof clawModel.getFingertips === "function"
     ? clawModel.getFingertips()
@@ -1269,6 +1407,8 @@ function resetGame(newPlayer = false) {
     clearPrizes();
     populatePrizes(true);
   }
+  // 新しいプレイヤー用に生成したカプセルもHOOK中は表示しない。
+  syncModeScene();
   // 通常のリセットでは景品の位置・等級・獲得記録を変えない。
   score = wonRanks.length;
   scoreEl.textContent = String(score);
@@ -1276,13 +1416,18 @@ function resetGame(newPlayer = false) {
   willSlip = false;
   horizontalInput = null;
   verticalInput = null;
+  horizontalVelocity = 0;
+  verticalVelocity = 0;
+  autoReturnVelocity = 0;
+  armSwayTime = 0;
+  clawRig.rotation.set(0, 0, 0);
+  hookMode?.resetSwing();
   controlPhase = "horizontal";
   state = "idle";
   stateTime = 0;
   // 視点自動切替がOFFなら、位置戻すでも選んだ視点を維持。
   if (cameraControls.isAuto()) {
-    cameraGoal.copy(CAMERA_FRONT);
-    camera.position.copy(CAMERA_FRONT);
+    cameraSystem.setView("front", { instant: true });
   }
   crane.position.x = HOME_X;
   crane.position.z = HOME_Z;
@@ -1295,67 +1440,131 @@ function resetGame(newPlayer = false) {
   updateRope();
 }
 
+// MINI CRANE Ver.1.2: モーション強化。
+// ゲーム状態・操作順・爪先の実座標に基づくつかみ判定はそのまま。
 function updateGame(delta) {
   stateTime += delta;
+  armSwayTime += delta;
+  // HOOKモードではリングの高さに合わせて下降位置だけ調整。
+  // 左右・前後の振り子運動とリングの接触判定は hook.js 側で処理。
+  // 横・奥移動、加減速、帰還ルートは3本爪と完全共通。
+  const dropY = hookMode?.isHook() ? hookMode.getDropY() : CLAW_DROP_Y;
+  const dropDuration = (CLAW_REST_Y - dropY) / DROP_SPEED * 1.2;
+  const liftDuration = (CLAW_REST_Y - dropY) / LIFT_SPEED * 1.2;
+
   if (state === "idle") {
-    // ①の長押し中は右方向へ移動（正面視点）。
+    // ①②のボタンを押すと少し加速する。離した瞬間は停止する。
     if (controlPhase === "horizontal" && horizontalInput !== null) {
-      crane.position.x = THREE.MathUtils.clamp(crane.position.x + MOVE_SPEED * delta, -2.3, 2.3);
+      horizontalVelocity = Math.min(MOVE_SPEED, horizontalVelocity + MANUAL_ACCEL * delta);
+      crane.position.x = THREE.MathUtils.clamp(
+        crane.position.x + horizontalVelocity * delta, -2.3, 2.3
+      );
+    } else {
+      horizontalVelocity = 0;
     }
-    // ②の長押し中は奥方向へ移動（側面視点）。
+
     if (controlPhase === "vertical" && verticalInput !== null) {
-      crane.position.z = THREE.MathUtils.clamp(crane.position.z - MOVE_SPEED * delta, -1.5, 1.48);
+      verticalVelocity = Math.min(MOVE_SPEED, verticalVelocity + MANUAL_ACCEL * delta);
+      crane.position.z = THREE.MathUtils.clamp(
+        crane.position.z - verticalVelocity * delta, -1.5, 1.48
+      );
+    } else {
+      verticalVelocity = 0;
     }
+
   } else if (state === "opening") {
+    // 待機時は常時開いた状態。確実に開ききってから下降。
     setClawOpen(Math.min(1, clawOpen + delta * 2.1));
     if (clawOpen >= 1 && stateTime > 0.25) {
       state = "descending";
       stateTime = 0;
       setStatus("下降中… 景品の上へ！");
     }
+
   } else if (state === "descending") {
-    clawRig.position.y = Math.max(CLAW_DROP_Y, clawRig.position.y - DROP_SPEED * delta);
-    if (clawRig.position.y <= CLAW_DROP_Y) {
+    // 開始と着地直前を穏やかにして、ガクッと止まらないようにする。
+    const t = easeInOutSmooth(stateTime / dropDuration);
+    clawRig.position.y = THREE.MathUtils.lerp(CLAW_REST_Y, dropY, t);
+    if (stateTime >= dropDuration) {
+      clawRig.position.y = dropY;
       state = "closing";
       stateTime = 0;
-      setStatus("3本の爪を閉じています…");
+      setStatus(hookMode?.isHook() ? "〇リングが板のフックに掛かったか確認中…" : "3本の爪を閉じています…");
     }
+
   } else if (state === "closing") {
-    setClawOpen(Math.max(0.02, clawOpen - delta * 1.85));
-    if (clawOpen <= 0.02) {
+    // 実GLBの3本爪に同じ開閉度を渡す（グリップ判定は閉じきった時に1回）。
+    const t = easeInOutSmooth(stateTime / CLAW_CLOSE_DURATION);
+    setClawOpen(THREE.MathUtils.lerp(1, 0.02, t));
+    if (stateTime >= CLAW_CLOSE_DURATION) {
+      setClawOpen(0.02);
       tryGrab();
       state = "ascending";
       stateTime = 0;
     }
+
   } else if (state === "ascending") {
-    clawRig.position.y = Math.min(CLAW_REST_Y, clawRig.position.y + LIFT_SPEED * delta);
-    // ★ 抽選失敗時は上昇の途中で落下。確率を消さず維持。
+    const t = easeInOutSmooth(stateTime / liftDuration);
+    clawRig.position.y = THREE.MathUtils.lerp(dropY, CLAW_REST_Y, t);
+
+    // 従来と同じ：保持抽選に外れた場合は上昇途中で落ちる。
     if (heldPrize && willSlip &&
         clawRig.position.y >= (CLAW_DROP_Y + CLAW_REST_Y) / 2) {
       releaseHeldPrize("あっ！ 景品が上昇途中で落ちちゃった！");
     }
-    if (clawRig.position.y >= CLAW_REST_Y) {
+
+    if (stateTime >= liftDuration) {
+      clawRig.position.y = CLAW_REST_Y;
+      // HOOKは板を持ち上げた地点の真下が全面獲得口。旧チュートへ運ばず落とす。
+      if (hookMode?.isHook() && hookMode.hasHeld()) {
+        hookMode.release();
+        setStatus("板とカプセルが底面の獲得口へ落下中…");
+      }
       state = "returning";
       stateTime = 0;
+      autoReturnVelocity = 0;
       if (heldPrize) setStatus("獲得口へ運んでいます…");
     }
+
   } else if (state === "returning") {
-    crane.position.x = moveTowards(crane.position.x, HOME_X, AUTO_SPEED * delta);
-    crane.position.z = moveTowards(crane.position.z, HOME_Z, AUTO_SPEED * delta);
-    if (crane.position.x === HOME_X && crane.position.z === HOME_Z) {
+    // 排出口へ向かうベクトル上を移動。到着時に急停止しないよう減速。
+    const dx = HOME_X - crane.position.x;
+    const dz = HOME_Z - crane.position.z;
+    const distance = Math.hypot(dx, dz);
+    autoReturnVelocity = Math.min(AUTO_SPEED, autoReturnVelocity + AUTO_ACCEL * delta);
+
+    if (distance <= 0.001) {
+      crane.position.x = HOME_X;
+      crane.position.z = HOME_Z;
       state = "releasing";
       stateTime = 0;
+    } else {
+      const safeBrakingSpeed = Math.sqrt(2 * AUTO_BRAKE * distance);
+      const speed = Math.min(autoReturnVelocity, safeBrakingSpeed);
+      const step = Math.min(distance, speed * delta);
+      crane.position.x += dx / distance * step;
+      crane.position.z += dz / distance * step;
     }
+
   } else if (state === "releasing") {
-    setClawOpen(Math.min(1, clawOpen + delta * 1.7));
+    const t = easeInOutSmooth(stateTime / CLAW_RELEASE_DURATION);
+    setClawOpen(THREE.MathUtils.lerp(0.02, 1, t));
     if (clawOpen >= 0.58 && heldPrize) releaseHeldPrize();
-    if (clawOpen >= 1 && stateTime > 0.66) {
+    if (clawOpen >= 0.58 && hookMode?.hasHeld()) hookMode.release();
+
+    if (stateTime >= CLAW_RELEASE_DURATION) {
+      setClawOpen(1);
       state = "idle";
       stateTime = 0;
       controlPhase = "horizontal";
-      if (cameraControls.isAuto()) cameraGoal.copy(CAMERA_FRONT);
+      horizontalVelocity = 0;
+      verticalVelocity = 0;
+      if (cameraControls.isAuto()) cameraSystem.setView("front");
+      // 未獲得フックの向きは維持（獲得後に次の板を生成した場合のみ再抽選）。
+      if (hookMode?.isHook() && hasPlaysLeft()) {
+        hookMode.prepareNextAttempt();
+      }
       setControlsEnabled(true);
-      setClawOpen(1); // 景品を離したあとも開いたまま
       if (!prizes.some(p => p.state === "falling")) {
         setStatus(hasPlaysLeft()
           ? `① 横を長押し！ 残り${MAX_PLAYS - playCount}回`
@@ -1364,13 +1573,23 @@ function updateGame(delta) {
     }
   }
 
+  // 下降・上昇・運搬中だけ本体を0.5～0.8度程度ゆらす。
+  // 閉じるときは減衰させ、実際の爪先座標でつかみ判定を行う。
+  const swayStrength = state === "descending" ? 0.010
+    : state === "ascending" ? 0.008
+    : state === "returning" ? 0.013
+    : state === "opening" ? 0.005 : 0;
+  const targetTiltX = Math.sin(armSwayTime * 5.4) * swayStrength;
+  const targetTiltZ = Math.sin(armSwayTime * 4.1 + 1.1) * swayStrength * 0.72;
+  clawRig.rotation.x = THREE.MathUtils.damp(clawRig.rotation.x, targetTiltX, 11, delta);
+  clawRig.rotation.z = THREE.MathUtils.damp(clawRig.rotation.z, targetTiltZ, 11, delta);
+
   updateRope();
-  // つかんだ瞬間の相対位置を保持して、アームに固定したように運ぶ。
-  // GLBの爪先3点の中心を使うと、カプセルが本体へ吸い寄せられる場合がある。
+
+  // つかんだ相対座標は従来どおり維持（中心へ瞬間移動させない）。
   if (heldPrize) {
-    // 床にある瞬間は下げず、少し持ち上がってから追加の隙間を作る。
     const liftRatio = THREE.MathUtils.clamp(
-      (clawRig.position.y - CLAW_DROP_Y) / 0.30, 0, 1
+      (clawRig.position.y - dropY) / 0.30, 0, 1
     );
     heldPrize.group.position.set(
       crane.position.x + heldPrizeOffset.x,
@@ -1378,8 +1597,22 @@ function updateGame(delta) {
         - HELD_CAPSULE_LOWER * liftRatio,
       crane.position.z + heldPrizeOffset.z
     );
-    heldPrize.group.rotation.z = Math.sin(stateTime * 2) * 0.035;
+
+    // カプセルの小さな振り子感。位置は動かさないので排出口判定を壊さない。
+    const targetRoll = Math.sin(armSwayTime * 4.5) *
+      (state === "returning" ? 0.040 : 0.018);
+    heldPrize.group.rotation.z = THREE.MathUtils.damp(
+      heldPrize.group.rotation.z, targetRoll, 6, delta
+    );
   }
+
+  // 操作中のボタンにのみ押下状態の見た目を追加。
+  horizontalButton.classList.toggle("mini-pressed", horizontalInput !== null);
+  verticalButton.classList.toggle("mini-pressed", verticalInput !== null);
+  horizontalButton.classList.toggle("mini-ready",
+    state === "idle" && controlPhase === "horizontal" && !horizontalButton.disabled);
+  verticalButton.classList.toggle("mini-ready",
+    state === "idle" && controlPhase === "vertical" && !verticalButton.disabled);
 }
 
 // ====================================================
@@ -1478,6 +1711,9 @@ function awardCapsule(prize) {
 let sceneSaveElapsed = 0;
 let sceneWasMoving = false;
 function updatePrizes(delta) {
+  // HOOK中は3本爪用景品の物理演算を止めて、配置・保存状態を維持。
+  // フック用の景品落下と獲得判定はhook.js側が処理する。
+  if (hookMode?.isHook()) return;
   // 高速落下でも壁を貫通しづらいように、物理計算だけ小刻みに進める。
   const substeps = Math.max(1, Math.ceil(delta / 0.012));
   const dt = delta / substeps;
@@ -1568,6 +1804,7 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.045);
   updateGame(delta * CRANE_ADMIN.armSpeed);
   updatePrizes(delta);
+  hookMode?.update(delta);
   maybeStartReveal();
   cameraControls.update(); // 自動切替後の視点名を表示
   miniFeatures.update(delta,
@@ -1575,8 +1812,7 @@ function animate() {
     verticalInput !== null ||
     ["descending", "ascending", "returning"].includes(state)
   );
-  camera.position.lerp(cameraGoal, Math.min(1, delta * 3.5));
-  camera.lookAt(0, 5.1, 0);
+  cameraSystem.update(delta);
   renderer.render(scene, camera);
 }
 animate();
